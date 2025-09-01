@@ -1,0 +1,465 @@
+from flask import Flask, request, jsonify, render_template
+from flask_cors import CORS
+from werkzeug.utils import secure_filename
+from flask_socketio import SocketIO, emit, join_room
+import os
+import sqlite3
+import hashlib
+import jwt
+import datetime
+from openai import OpenAI
+
+app = Flask(__name__)
+CORS(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
+
+# Secret key for JWT token encoding/decoding
+app.config['SECRET_KEY'] = 'your-secret-key-change-in-production'
+
+UPLOAD_FOLDER = 'uploads'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# OpenAI client
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+DB_PATH = "studyai.db"
+
+# ------------------- DB Helpers -------------------
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def create_tables():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('''CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        dob TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    cur.execute('''CREATE TABLE IF NOT EXISTS documents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        filename TEXT NOT NULL,
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    cur.execute('''CREATE TABLE IF NOT EXISTS flashcards (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        doc_id INTEGER NOT NULL,
+        question TEXT NOT NULL,
+        answer TEXT NOT NULL
+    )''')
+    cur.execute('''CREATE TABLE IF NOT EXISTS exams (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        doc_id INTEGER NOT NULL,
+        question TEXT NOT NULL,
+        options TEXT NOT NULL,
+        answer TEXT NOT NULL
+    )''')
+    cur.execute('''CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sender TEXT NOT NULL,
+        receiver TEXT NOT NULL,
+        message TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    conn.commit()
+    conn.close()
+
+# ------------------- Authentication Helpers -------------------
+def hash_password(password):
+    """Hash a password for storing."""
+    salt = "studyai-salt"  # In production, use a unique salt for each user
+    return hashlib.sha256(salt.encode() + password.encode()).hexdigest()
+
+def verify_password(stored_password, provided_password):
+    """Verify a stored password against one provided by user"""
+    salt = "studyai-salt"
+    return stored_password == hashlib.sha256(salt.encode() + provided_password.encode()).hexdigest()
+
+def generate_token(user_id, username):
+    """Generate a JWT token for authenticated users"""
+    try:
+        payload = {
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(days=1),
+            'iat': datetime.datetime.utcnow(),
+            'sub': user_id,
+            'username': username
+        }
+        return jwt.encode(
+            payload,
+            app.config['SECRET_KEY'],
+            algorithm='HS256'
+        )
+    except Exception as e:
+        return e
+
+def verify_token(token):
+    """Verify a JWT token"""
+    try:
+        payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+        return payload
+    except jwt.ExpiredSignatureError:
+        return 'Token expired. Please log in again.'
+    except jwt.InvalidTokenError:
+        return 'Invalid token. Please log in again.'
+
+# ------------------- Authentication Routes -------------------
+@app.route('/register', methods=['POST'])
+def register():
+    """Register a new user"""
+    try:
+        data = request.get_json()
+        username = data.get('username')
+        password = data.get('password')
+        dob = data.get('dob')
+
+        # Validate input
+        if not username or not password or not dob:
+            return jsonify({'success': False, 'message': 'Missing required fields'}), 400
+
+        if len(username) < 3:
+            return jsonify({'success': False, 'message': 'Username must be at least 3 characters'}), 400
+
+        if len(password) < 8:
+            return jsonify({'success': False, 'message': 'Password must be at least 8 characters'}), 400
+
+        # Hash password
+        hashed_password = hash_password(password)
+
+        # Save to database
+        conn = get_db()
+        cur = conn.cursor()
+        
+        try:
+            cur.execute("INSERT INTO users (username, password, dob) VALUES (?, ?, ?)", 
+                       (username, hashed_password, dob))
+            conn.commit()
+            user_id = cur.lastrowid
+            
+            # Generate token
+            token = generate_token(user_id, username)
+            
+            return jsonify({
+                'success': True, 
+                'message': 'User registered successfully',
+                'token': token,
+                'user': {
+                    'id': user_id,
+                    'username': username
+                }
+            }), 201
+            
+        except sqlite3.IntegrityError:
+            return jsonify({'success': False, 'message': 'Username already exists'}), 409
+        finally:
+            conn.close()
+            
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Registration error: {str(e)}'}), 500
+
+@app.route('/login', methods=['POST'])
+def login():
+    """Authenticate a user and return a token"""
+    try:
+        data = request.get_json()
+        username = data.get('username')
+        password = data.get('password')
+
+        # Validate input
+        if not username or not password:
+            return jsonify({'success': False, 'message': 'Missing username or password'}), 400
+
+        # Check if user exists
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT id, username, password FROM users WHERE username = ?", (username,))
+        user = cur.fetchone()
+        conn.close()
+
+        if not user:
+            return jsonify({'success': False, 'message': 'Invalid username or password'}), 401
+
+        # Verify password
+        if not verify_password(user['password'], password):
+            return jsonify({'success': False, 'message': 'Invalid username or password'}), 401
+
+        # Generate token
+        token = generate_token(user['id'], user['username'])
+        
+        return jsonify({
+            'success': True,
+            'message': 'Login successful',
+            'token': token,
+            'user': {
+                'id': user['id'],
+                'username': user['username']
+            }
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Login error: {str(e)}'}), 500
+
+# ------------------- Protected Routes -------------------
+@app.route('/verify_token', methods=['POST'])
+def verify_user_token():
+    """Verify if a token is valid"""
+    try:
+        data = request.get_json()
+        token = data.get('token')
+        
+        if not token:
+            return jsonify({'success': False, 'message': 'Token is required'}), 400
+            
+        payload = verify_token(token)
+        if isinstance(payload, str):  # Error message
+            return jsonify({'success': False, 'message': payload}), 401
+            
+        return jsonify({
+            'success': True, 
+            'message': 'Token is valid',
+            'user': {
+                'id': payload['sub'],
+                'username': payload['username']
+            }
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Token verification error: {str(e)}'}), 500
+
+# ------------------- Existing Routes (Updated with Authentication) -------------------
+@app.route("/")
+def home():
+    return render_template("login.html")  # Serve login page first
+
+@app.route("/index")
+def main_app():
+    return render_template("index.html")  # Main application
+
+@app.route("/index")
+def serve_main():
+    # Check if user is authenticated
+    token = request.args.get('token')
+    if not token:
+        return "Unauthorized", 401
+    #routes updates
+    @app.route('/login', methods=['GET'])
+def serve_login_page():
+    return render_template('login.html')
+
+@app.route('/main', methods=['GET'])
+def serve_main_page():
+    return render_template('index.html')
+    
+   # Verify token
+    payload = verify_token(token)
+    if isinstance(payload, str):
+        return "Invalid token", 401
+    return render_template("index.html")
+
+# Add a route to serve static files
+    
+    user_id = payload['sub']
+    file = request.files.get('file')
+    if not file:
+        return jsonify({'success': False, 'message': 'Missing file'}), 400
+
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    file.save(filepath)
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO documents (user_id, filename) VALUES (?,?)", (user_id, filename))
+    conn.commit()
+    doc_id = cur.lastrowid
+    conn.close()
+
+    return jsonify({'success': True, 'message': 'File uploaded', 'document_id': doc_id, 'filename': filename})
+
+@app.route('/flashcards', methods=['POST'])
+def generate_flashcards():
+    # Check authentication
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'success': False, 'message': 'Authorization token required'}), 401
+    
+    payload = verify_token(token.replace('Bearer ', ''))
+    if isinstance(payload, str):
+        return jsonify({'success': False, 'message': payload}), 401
+    
+    data = request.get_json()
+    doc_ids = data.get('document_ids', [])
+    flashcards = []
+
+    conn = get_db()
+    cur = conn.cursor()
+    for doc_id in doc_ids:
+        # Verify the document belongs to the authenticated user
+        cur.execute("SELECT filename FROM documents WHERE id=? AND user_id=?", (doc_id, payload['sub']))
+        doc = cur.fetchone()
+        if not doc:
+            continue
+
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], doc['filename'])
+        if not os.path.exists(filepath):
+            continue
+
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+
+        prompt = f"""
+        Create 5 simple Q&A flashcards from the content below.
+        Make answers informative and include relevant context from general knowledge sources.
+        Content:
+        {content}
+        """
+
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=700
+        )
+
+        ai_output = response.choices[0].message.content
+        for line in ai_output.split("\n"):
+            if "Q:" in line and "A:" in line:
+                q, a = line.split("A:", 1)
+                question, answer = q.replace("Q:", "").strip(), a.strip()
+                flashcards.append({'question': question, 'answer': answer})
+                # Save to DB
+                cur.execute("INSERT INTO flashcards (doc_id, question, answer) VALUES (?,?,?)", (doc_id, question, answer))
+
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'flashcards': flashcards})
+
+@app.route('/exams', methods=['POST'])
+def generate_exams():
+    # Check authentication
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'success': False, 'message': 'Authorization token required'}), 401
+    
+    payload = verify_token(token.replace('Bearer ', ''))
+    if isinstance(payload, str):
+        return jsonify({'success': False, 'message': payload}), 401
+    
+    data = request.get_json()
+    doc_ids = data.get('document_ids', [])
+    exams = []
+
+    conn = get_db()
+    cur = conn.cursor()
+    for doc_id in doc_ids:
+        # Verify the document belongs to the authenticated user
+        cur.execute("SELECT filename FROM documents WHERE id=? AND user_id=?", (doc_id, payload['sub']))
+        doc = cur.fetchone()
+        if not doc:
+            continue
+
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], doc['filename'])
+        if not os.path.exists(filepath):
+            continue
+
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+
+        prompt = f"""
+        Create 3 multiple-choice questions (4 options each) from this content.
+        Make the questions educational and include relevant context from general knowledge sources.
+        Specify the correct answer for each question.
+        Content:
+        {content}
+        """
+
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=700
+        )
+
+        ai_output = response.choices[0].message.content
+        for line in ai_output.split("\n"):
+            if "Q:" in line:
+                parts = line.split("Options:")
+                question = parts[0].replace("Q:", "").strip()
+                options = parts[1].split(",") if len(parts) > 1 else ['A', 'B', 'C', 'D']
+                exams.append({'question': question, 'options': [opt.strip() for opt in options], 'answer': options[0].strip()})
+                # Save to DB
+                cur.execute("INSERT INTO exams (doc_id, question, options, answer) VALUES (?,?,?,?)",
+                            (doc_id, question, ",".join([opt.strip() for opt in options]), options[0].strip()))
+
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'exams': exams})
+
+@app.route('/peers', methods=['GET'])
+def peer_learning():
+    # Check authentication
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'success': False, 'message': 'Authorization token required'}), 401
+    
+    payload = verify_token(token.replace('Bearer ', ''))
+    if isinstance(payload, str):
+        return jsonify({'success': False, 'message': payload}), 401
+    
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT username FROM users WHERE id != ? LIMIT 5", (payload['sub'],))
+    peers = [row['username'] for row in cur.fetchall()]
+    conn.close()
+    return jsonify({'success': True, 'peers': peers})
+
+@app.route('/messages/<peer>', methods=['GET'])
+def get_messages(peer):
+    # Check authentication
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'success': False, 'message': 'Authorization token required'}), 401
+    
+    payload = verify_token(token.replace('Bearer ', ''))
+    if isinstance(payload, str):
+        return jsonify({'success': False, 'message': payload}), 401
+    
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT sender, message, created_at FROM messages WHERE (receiver=? AND sender=?) OR (receiver=? AND sender=?) ORDER BY created_at ASC", 
+                (peer, payload['username'], payload['username'], peer))
+    msgs = [dict(row) for row in cur.fetchall()]
+    conn.close()
+    return jsonify({'success': True, 'messages': msgs})
+
+# ------------------- Socket.IO -------------------
+@socketio.on('join')
+def on_join(data):
+    username = data['username']
+    peer = data['peer']
+    room = "_".join(sorted([username, peer]))
+    join_room(room)
+    emit('status', {'msg': f"{username} joined {room}"}, room=room)
+
+@socketio.on('send_message')
+def handle_message(data):
+    sender = data['sender']
+    receiver = data['receiver']
+    message = data['message']
+    room = "_".join(sorted([sender, receiver]))
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO messages (sender, receiver, message) VALUES (?,?,?)", (sender, receiver, message))
+    conn.commit()
+    conn.close()
+
+    emit('receive_message', {'sender': sender, 'message': message}, room=room)
+
+# ------------------- Main -------------------
+if __name__ == '__main__':
+    create_tables()
+    socketio.run(app, debug=True, host="0.0.0.0", port=5000)

@@ -1,0 +1,176 @@
+# auth_server.py
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import jwt
+import datetime
+from functools import wraps
+
+# Create Flask app
+app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
+
+# Configuration
+app.config['SECRET_KEY'] = 'your-secret-key-change-in-production'
+app.config['TOKEN_EXPIRATION_HOURS'] = 24
+
+# Mock user database (replace with real database in production)
+users = {
+    'admin': {'password': 'admin123', 'email': 'admin@studyai.com', 'role': 'admin'},
+    'student1': {'password': 'student123', 'email': 'student1@studyai.com', 'role': 'student'},
+    'teacher1': {'password': 'teacher123', 'email': 'teacher1@studyai.com', 'role': 'teacher'}
+}
+
+# Token required decorator
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        
+        # Check if token is in the header
+        if 'Authorization' in request.headers:
+            auth_header = request.headers['Authorization']
+            try:
+                token = auth_header.split(" ")[1]  # Bearer TOKEN
+            except IndexError:
+                return jsonify({'message': 'Token is missing!'}), 401
+        
+        if not token:
+            return jsonify({'message': 'Token is missing!'}), 401
+        
+        try:
+            # Decode the token
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+            current_user = data['user']
+        except jwt.ExpiredSignatureError:
+            return jsonify({'message': 'Token has expired!'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'message': 'Token is invalid!'}), 401
+        
+        return f(current_user, *args, **kwargs)
+    
+    return decorated
+
+# Routes
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint"""
+    return jsonify({'status': 'healthy', 'service': 'auth_server'})
+
+@app.route('/login', methods=['POST'])
+def login():
+    """User login endpoint"""
+    data = request.get_json()
+    
+    if not data or not data.get('username') or not data.get('password'):
+        return jsonify({'success': False, 'message': 'Username and password required'}), 400
+    
+    username = data['username']
+    password = data['password']
+    
+    # Check if user exists and password is correct
+    if username in users and users[username]['password'] == password:
+        # Generate token
+        token = jwt.encode({
+            'user': username,
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=app.config['TOKEN_EXPIRATION_HOURS'])
+        }, app.config['SECRET_KEY'])
+        
+        return jsonify({
+            'success': True,
+            'message': 'Login successful',
+            'token': token,
+            'user': {
+                'username': username,
+                'email': users[username]['email'],
+                'role': users[username]['role']
+            }
+        })
+    
+    return jsonify({'success': False, 'message': 'Invalid credentials'}), 401
+
+@app.route('/register', methods=['POST'])
+def register():
+    """User registration endpoint"""
+    data = request.get_json()
+    
+    if not data or not data.get('username') or not data.get('password') or not data.get('email'):
+        return jsonify({'success': False, 'message': 'Username, password and email required'}), 400
+    
+    username = data['username']
+    password = data['password']
+    email = data['email']
+    
+    # Check if user already exists
+    if username in users:
+        return jsonify({'success': False, 'message': 'User already exists'}), 409
+    
+    # Create new user
+    users[username] = {
+        'password': password,
+        'email': email,
+        'role': 'student'  # Default role
+    }
+    
+    # Generate token for new user
+    token = jwt.encode({
+        'user': username,
+        'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=app.config['TOKEN_EXPIRATION_HOURS'])
+    }, app.config['SECRET_KEY'])
+    
+    return jsonify({
+        'success': True,
+        'message': 'User created successfully',
+        'token': token,
+        'user': {
+            'username': username,
+            'email': email,
+            'role': 'student'
+        }
+    }), 201
+
+@app.route('/verify_token', methods=['POST'])
+@token_required
+def verify_token(current_user):
+    """Verify if a token is valid"""
+    return jsonify({
+        'success': True,
+        'message': 'Token is valid',
+        'user': current_user
+    })
+
+@app.route('/user/profile', methods=['GET'])
+@token_required
+def get_profile(current_user):
+    """Get user profile"""
+    if current_user in users:
+        user_data = users[current_user].copy()
+        user_data.pop('password', None)  # Don't return password
+        return jsonify({
+            'success': True,
+            'user': user_data
+        })
+    
+    return jsonify({'success': False, 'message': 'User not found'}), 404
+
+@app.route('/users', methods=['GET'])
+@token_required
+def get_users(current_user):
+    """Get all users (admin only)"""
+    # Check if user is admin
+    if users.get(current_user, {}).get('role') != 'admin':
+        return jsonify({'success': False, 'message': 'Admin access required'}), 403
+    
+    # Return users without passwords
+    user_list = []
+    for username, data in users.items():
+        user_data = data.copy()
+        user_data.pop('password', None)
+        user_list.append({'username': username, **user_data})
+    
+    return jsonify({
+        'success': True,
+        'users': user_list
+    })
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5001)

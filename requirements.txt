@@ -1,0 +1,6 @@
+flask
+flask-mysqldb
+flask-cors
+flask-socketio
+eventlet
+openai

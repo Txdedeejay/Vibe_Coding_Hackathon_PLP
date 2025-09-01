@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StudyAI - Standalone Login</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 400px;
+            width: 100%;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #4a6bff 0%, #77a1ff 100%);
+            color: white;
+            padding: 25px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 5px;
+        }
+        
+        .header p {
+            opacity: 0.9;
+        }
+        
+        .form-container {
+            padding: 25px;
+        }
+        
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .tab {
+            flex: 1;
+            text-align: center;
+            padding: 12px;
+            cursor: pointer;
+            font-weight: 600;
+            color: #777;
+            transition: all 0.3s;
+        }
+        
+        .tab.active {
+            color: #4a6bff;
+            border-bottom: 3px solid #4a6bff;
+        }
+        
+        .form {
+            display: none;
+        }
+        
+        .form.active {
+            display: block;
+        }
+        
+        .input-group {
+            margin-bottom: 20px;
+            position: relative;
+        }
+        
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #444;
+        }
+        
+        .input-group input {
+            width: 100%;
+            padding: 14px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border 0.3s;
+        }
+        
+        .input-group input:focus {
+            border-color: #4a6bff;
+            outline: none;
+        }
+        
+        .input-group i {
+            position: absolute;
+            right: 15px;
+            top: 43px;
+            color: #777;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #4a6bff 0%, #77a1ff 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(74, 107, 255, 0.4);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        .btn.loading {
+            position: relative;
+            color: transparent;
+        }
+        
+        .btn.loading::after {
+            content: '';
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            top: 50%;
+            left: 50%;
+            margin: -10px 0 0 -10px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .message {
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+            display: none;
+        }
+        
+        .message.error {
+            background: #ffebee;
+            color: #d32f2f;
+            display: block;
+        }
+        
+        .message.success {
+            background: #e8f5e9;
+            color: #2e7d32;
+            display: block;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            color: #777;
+        }
+        
+        .footer a {
+            color: #4a6bff;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .social-login {
+            margin-top: 25px;
+        }
+        
+        .social-login p {
+            text-align: center;
+            margin-bottom: 15px;
+            color: #777;
+            position: relative;
+        }
+        
+        .social-login p::before,
+        .social-login p::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            width: 30%;
+            height: 1px;
+            background: #eee;
+        }
+        
+        .social-login p::before {
+            left: 0;
+        }
+        
+        .social-login p::after {
+            right: 0;
+        }
+        
+        .social-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+        }
+        
+        .social-btn {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .social-btn.google {
+            background: #DB4437;
+        }
+        
+        .social-btn.facebook {
+            background: #4267B2;
+        }
+        
+        .social-btn.github {
+            background: #333;
+        }
+        
+        .social-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+        
+        .password-strength {
+            height: 5px;
+            background: #eee;
+            border-radius: 3px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+        
+        .strength-bar {
+            height: 100%;
+            width: 0;
+            transition: width 0.3s;
+        }
+        
+        .server-status {
+            text-align: center;
+            margin-bottom: 15px;
+            padding: 8px;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        .server-online {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+        
+        .server-offline {
+            background: #ffebee;
+            color: #d32f2f;
+        }
+        
+        .server-checking {
+            background: #fff8e1;
+            color: #ff8f00;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>StudyAI</h1>
+            <p>Login to access your learning dashboard</p>
+        </div>
+        
+        <div class="form-container">
+            <div class="tabs">
+                <div class="tab active" data-tab="login">Login</div>
+                <div class="tab" data-tab="signup">Sign Up</div>
+            </div>
+            
+            <div id="serverStatus" class="server-status server-checking">Checking server connection...</div>
+            
+            <div id="message" class="message"></div>
+            
+            <form id="loginForm" class="form active">
+                <div class="input-group">
+                    <label for="loginUsername">Username</label>
+                    <input type="text" id="loginUsername" placeholder="Enter your username" required>
+                    <i class="fas fa-user"></i>
+                </div>
+                
+                <div class="input-group">
+                    <label for="loginPassword">Password</label>
+                    <input type="password" id="loginPassword" placeholder="Enter your password" required>
+                    <i class="fas fa-lock"></i>
+                </div>
+                
+                <button type="submit" class="btn">Login</button>
+                
+                <div class="footer">
+                    <a href="#" id="forgotPassword">Forgot your password?</a>
+                </div>
+                
+                <div class="social-login">
+                    <p>Or login with</p>
+                    <div class="social-buttons">
+                        <div class="social-btn google" title="Login with Google">
+                            <i class="fab fa-google"></i>
+                        </div>
+                        <div class="social-btn facebook" title="Login with Facebook">
+                            <i class="fab fa-facebook-f"></i>
+                        </div>
+                        <div class="social-btn github" title="Login with GitHub">
+                            <i class="fab fa-github"></i>
+                        </div>
+                    </div>
+                </div>
+            </form>
+            
+            <form id="signupForm" class="form">
+                <div class="input-group">
+                    <label for="signupUsername">Username</label>
+                    <input type="text" id="signupUsername" placeholder="Choose a username" required>
+                    <i class="fas fa-user"></i>
+                </div>
+                
+                <div class="input-group">
+                    <label for="signupPassword">Password</label>
+                    <input type="password" id="signupPassword" placeholder="Create a strong password" required>
+                    <i class="fas fa-lock"></i>
+                    <div class="password-strength">
+                        <div id="passwordStrengthBar" class="strength-bar"></div>
+                    </div>
+                </div>
+                
+                <div class="input-group">
+                    <label for="confirmPassword">Confirm Password</label>
+                    <input type="password" id="confirmPassword" placeholder="Confirm your password" required>
+                    <i class="fas fa-lock"></i>
+                </div>
+                
+                <div class="input-group">
+                    <label for="email">Email Address</label>
+                    <input type="email" id="email" placeholder="Enter your email" required>
+                    <i class="fas fa-envelope"></i>
+                </div>
+                
+                <button type="submit" class="btn">Create Account</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // API Configuration
+        const API_BASE_URL = 'http://localhost:5000';
+        
+        // DOM Elements
+        const loginTab = document.querySelector('[data-tab="login"]');
+        const signupTab = document.querySelector('[data-tab="signup"]');
+        const loginForm = document.getElementById('loginForm');
+        const signupForm = document.getElementById('signupForm');
+        const messageEl = document.getElementById('message');
+        const serverStatus = document.getElementById('serverStatus');
+        const passwordStrengthBar = document.getElementById('passwordStrengthBar');
+        const forgotPasswordLink = document.getElementById('forgotPassword');
+        
+        // Tab Switching
+        loginTab.addEventListener('click', () => switchTab('login'));
+        signupTab.addEventListener('click', () => switchTab('signup'));
+        
+        function switchTab(tab) {
+            // Update active tab
+            loginTab.classList.toggle('active', tab === 'login');
+            signupTab.classList.toggle('active', tab === 'signup');
+            
+            // Show active form
+            loginForm.classList.toggle('active', tab === 'login');
+            signupForm.classList.toggle('active', tab === 'signup');
+            
+            // Clear messages when switching tabs
+            hideMessage();
+        }
+        
+        // Password Strength Indicator
+        document.getElementById('signupPassword').addEventListener('input', function() {
+            const password = this.value;
+            let strength = 0;
+            
+            // Length check
+            if (password.length >= 8) strength += 25;
+            
+            // Uppercase check
+            if (/[A-Z]/.test(password)) strength += 25;
+            
+            // Number check
+            if (/[0-9]/.test(password)) strength += 25;
+            
+            // Special character check
+            if (/[^A-Za-z0-9]/.test(password)) strength += 25;
+            
+            // Update strength bar
+            passwordStrengthBar.style.width = strength + '%';
+            
+            // Color coding
+            if (strength < 50) {
+                passwordStrengthBar.style.background = '#e74c3c';
+            } else if (strength < 75) {
+                passwordStrengthBar.style.background = '#f39c12';
+            } else {
+                passwordStrengthBar.style.background = '#2ecc71';
+            }
+        });
+        
+        // Form Submissions
+        loginForm.addEventListener('submit', handleLogin);
+        signupForm.addEventListener('submit', handleSignup);
+        
+        // Forgot Password
+        forgotPasswordLink.addEventListener('click', function(e) {
+            e.preventDefault();
+            showMessage('Password reset instructions will be sent to your email.', 'success');
+        });
+        
+        // Social Login Buttons
+        document.querySelectorAll('.social-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const provider = this.querySelector('i').parentNode.classList[1];
+                simulateSocialLogin(provider);
+            });
+        });
+        
+        // Check Server Status on Load
+        checkServerStatus();
+        
+        // Check if user is already logged in
+        checkLoginStatus();
+        
+        // Server Status Check
+        async function checkServerStatus() {
+            try {
+                serverStatus.textContent = 'Checking server connection...';
+                serverStatus.className = 'server-status server-checking';
+                
+                const response = await fetch(`${API_BASE_URL}/health`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (response.ok) {
+                    serverStatus.textContent = 'Server is online';
+                    serverStatus.className = 'server-status server-online';
+                } else {
+                    serverStatus.textContent = 'Server error: ' + response.status;
+                    serverStatus.className = 'server-status server-offline';
+                }
+            } catch (error) {
+                serverStatus.textContent = 'Server is offline. Please start the Flask server.';
+                serverStatus.className = 'server-status server-offline';
+                console.error('Server status check failed:', error);
+            }
+        }
+        
+        // Check if user is already logged in
+        function checkLoginStatus() {
+            const userData = localStorage.getItem('studyai_user');
+            const token = localStorage.getItem('studyai_token');
+            
+            if (userData && token) {
+                const user = JSON.parse(userData);
+                if (user.loggedIn) {
+                    // Verify token with backend
+                    verifyToken(token);
+                }
+            }
+        }
+        
+        // Verify token with backend
+        async function verifyToken(token) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/verify_token`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Token is valid, redirect to main page
+                    window.location.href = '/main';
+                } else {
+                    // Token is invalid, clear storage
+                    localStorage.removeItem('studyai_user');
+                    localStorage.removeItem('studyai_token');
+                }
+            } catch (error) {
+                console.error('Token verification error:', error);
+            }
+        }
+        
+        // Handle Login
+        async function handleLogin(e) {
+            e.preventDefault();
+            
+            const username = document.getElementById('loginUsername').value;
+            const password = document.getElementById('loginPassword').value;
+            const btn = loginForm.querySelector('button[type="submit"]');
+            
+            // Basic validation
+            if (!username || !password) {
+                showMessage('Please fill in all fields', 'error');
+                return;
+            }
+            
+            // Show loading state
+            btn.classList.add('loading');
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                // Check if server is responding
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage('Login successful! Redirecting...', 'success');
+                    
+                    // Store user info in localStorage
+                    localStorage.setItem('studyai_token', data.token);
+                    localStorage.setItem('studyai_user', JSON.stringify({
+                        ...data.user,
+                        loggedIn: true
+                    }));
+                    
+                    // Redirect to main application page after successful login
+                    setTimeout(() => {
+                        window.location.href = '/main';
+                    }, 1500);
+                } else {
+                    // Show error message
+                    showMessage(data.message, 'error');
+                }
+            } catch (error) {
+                showMessage('Login error: ' + error.message, 'error');
+                checkServerStatus(); // Recheck server status
+            } finally {
+                // Remove loading state
+                btn.classList.remove('loading');
+            }
+        }
+        
+        // Handle Signup
+        async function handleSignup(e) {
+            e.preventDefault();
+            
+            const username = document.getElementById('signupUsername').value;
+            const password = document.getElementById('signupPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+            const email = document.getElementById('email').value;
+            const btn = signupForm.querySelector('button[type="submit"]');
+            
+            // Basic validation
+            if (!username || !password || !confirmPassword || !email) {
+                showMessage('Please fill in all fields', 'error');
+                return;
+            }
+            
+            if (password !== confirmPassword) {
+                showMessage('Passwords do not match', 'error');
+                return;
+            }
+            
+            // Show loading state
+            btn.classList.add('loading');
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password, email })
+                });
+                
+                // Check if server is responding
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage('Account created successfully! Redirecting...', 'success');
+                    
+                    // Store user info in localStorage
+                    localStorage.setItem('studyai_token', data.token);
+                    localStorage.setItem('studyai_user', JSON.stringify({
+                        ...data.user,
+                        loggedIn: true
+                    }));
+                    
+                    // Redirect to main application page after successful registration
+                    setTimeout(() => {
+                        window.location.href = '/main';
+                    }, 1500);
+                } else {
+                    // Show error message
+                    showMessage(data.message, 'error');
+                }
+            } catch (error) {
+                showMessage('Registration error: ' + error.message, 'error');
+                checkServerStatus(); // Recheck server status
+            } finally {
+                // Remove loading state
+                btn.classList.remove('loading');
+            }
+        }
+        
+        // Simulate Social Login
+        function simulateSocialLogin(provider) {
+            showMessage(`Redirecting to ${provider} authentication...`, 'success');
+            
+            // In a real application, this would redirect to the OAuth provider
+            setTimeout(() => {
+                showMessage(`Logged in with ${provider} successfully!`, 'success');
+                
+                // Store mock user info in localStorage
+                localStorage.setItem('studyai_user', JSON.stringify({
+                    username: `user_${Math.floor(Math.random() * 10000)}`,
+                    loggedIn: true,
+                    socialLogin: provider
+                }));
+        
+                // Generate a mock token for social login
+                const mockToken = `social_${provider}_${Math.random().toString(36).substr(2, 9)}`;
+                localStorage.setItem('studyai_token', mockToken);
+                
+                // Redirect to main application page after successful login
+                setTimeout(() => {
+                    window.location.href = '/main';
+                }, 1500);
+            }, 1500);
+        }
+        
+        // Show message to user
+        function showMessage(message, type) {
+            messageEl.textContent = message;
+            messageEl.className = 'message';
+            messageEl.classList.add(type);
+        }
+        
+        // Hide message
+        function hideMessage() {
+            messageEl.style.display = 'none';
+        }
+    </script>
+</body>
+</html>
